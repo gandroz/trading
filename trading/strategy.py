@@ -1,31 +1,62 @@
+import pandas as pd
 from data import Data
+from order import Order, OrderType, Position
+from money_management import BaseMoneyManagement
 from plotting import plot
 import numpy as np
 
 
 class BaseStrategy:
-    def __init__(self, initial_value, data_history):
-        self.initial_value = initial_value
+    def __init__(self, data_history:pd.DataFrame, money_management:BaseMoneyManagement):
         self.df = data_history
+        self.orders = []
+        self.positions = [Position()]
+        self.mm = money_management
 
-    def buy(self):
-        pass
+    def buy(self, price, date):
+        self.orders.append(Order(OrderType.Buy, price, date))
 
-    def sell(self):
-        pass
+    def sell(self, price, date):
+        self.orders.append(Order(OrderType.Sell, price, date))
+
+    def _open_position(self, order):
+        if self.positions[-1].is_opened:
+           # do nothing
+           return
+        if self.positions[-1].is_closed:
+            position = Position()
+
+        order.quantity = self.mm.compute_nb_share(order.price)  # TODO: manage multiple entries with MM - Review logic
+        self.positions[-1].buy_order = order
+        position.buy_order = order
+        self.positions.append(position)
+
+    def _close_position(self, order):
+        if self.positions[-1].is_closed:
+            # last position already closed
+            return
+        order.quantity = self.positions[-1].buy_order.quantity
+        self.positions[-1].sell_order = order
+
+    def summary(self):
+        for order in self.orders:
+            if order.order_type == OrderType.Buy:
+                self._open_position(order)
+            else:
+                self._close_position(order)
+        
 
     def simulate(self):
-        pass
+        raise not NotImplemented()
 
 
 class TwoEMAStrategy(BaseStrategy):
-    def __init__(self, initial_value, data_history, slow_ema, fast_ema, allocation_percent, 
-                 tailing_stop=None):
-        super().__init__(initial_value, data_history)
+    def __init__(self, data_history:pd.DataFrame, money_management:BaseMoneyManagement, slow_ema, fast_ema):
+        super().__init__(data_history, money_management)
         self.slow_ema = slow_ema
         self.fast_ema = fast_ema
-        self.alloc = allocation_percent  # percentage of the current ptf value to risk
-        self.tailing_stop = tailing_stop  # % of min over last x closes
+        # self.alloc = allocation_percent  # percentage of the current ptf value to risk
+        # self.tailing_stop = tailing_stop  # % of min over last x closes
         # TODO: define class for tailing stops
         # TODO: define class for money management
 
@@ -38,10 +69,8 @@ class TwoEMAStrategy(BaseStrategy):
         _df["signal"] = np.where(_df["EMAfast"] > _df["EMAslow"], 1.0, 0.0)
         _df["signal"] = _df.signal.diff()  # +1 for buy signal and -1 for sell signal
 
-        _df["stop"] = _df.Close.rolling(window=20).min() * self.tailing_stop / 100
-
-        _long = _df.Close[_df.signal > 0].index
-        _short = _df.Close[(_df.signal < 0)|(_df.Close <= _df.stop)].index
+        # compute stop in money management.
+        self.mm.compute_stop(_df)
 
         _df["long"] = _df.signal > 0
         _df["short"] = (_df.signal < 0)|(_df.Close <= _df.stop)
@@ -57,28 +86,20 @@ class TwoEMAStrategy(BaseStrategy):
             else:
                 counter *= -1
         _df.drop(idx_to_remove, inplace=True)
-        res = self._compute_positions(_df)
-        print(f"Final value: {res}")
+        self._compute_order(_df)
 
-    def _compute_positions(self, df):
+    def _compute_order(self, df):
         # TODO: il faudrait ouvrir et fermer une position a l'ouverture de la prochaine journee
-        value = self.initial_value
-        nb_shares = 0
-        history = []  # build history
 
-        for index, row in df.iterrows():
+        for _, row in df.iterrows():
             if row.long:
-                nb_shares = int(value*self.alloc / row.Close)
-                price = row.Open
+                self.buy(row.Open, row.index)
             if row.short:
-                pl = nb_shares * row.Close
-                value += pl
-            
-        return value
+                self.sell(row.Close, row.index)
 
 
 if __name__ == "__main__":
     data = Data()
     data.read()
-    strategy = TwoEMAStrategy(1000, data.df["AAPL"], 20, 10, 100, tailing_stop=100)
+    strategy = TwoEMAStrategy(1000, data.df["AAPL"], 20, 10)
     strategy.simulate()
