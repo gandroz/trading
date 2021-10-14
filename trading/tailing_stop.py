@@ -1,9 +1,12 @@
+from pandas import DataFrame
+
+
 class BaseStop:
     def __init__(self) -> None:
         pass
 
-    def compute(self, df):
-        pass
+    def compute(self, df:DataFrame):
+        df["stop"] = 0
 
 
 class MinWindow(BaseStop):
@@ -12,5 +15,5 @@ class MinWindow(BaseStop):
         self.window = window
         self.factor = factor
 
-    def compute(self, df):
+    def compute(self, df:DataFrame):
         df["stop"] = df.Close.rolling(window=self.window).min() * self.factor

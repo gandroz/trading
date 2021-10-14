@@ -1,5 +1,5 @@
 
-from data import Data
+from trading.data import Data
 import numpy as np
 from bokeh.plotting import figure
 from bokeh.io import export_png
@@ -60,9 +60,3 @@ def plot(df, filename=None, bollinger=None, ema=None, sma=None,
     # p.background_fill_color = None
     # p.border_fill_color = None
     export_png(p, filename=_filename)
-
-
-if __name__ == "__main__":
-    data = Data()
-    data.read()
-    plot(data.df["AAPL"], ema=20)
